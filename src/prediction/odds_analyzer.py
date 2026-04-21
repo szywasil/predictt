@@ -102,74 +102,67 @@ class OddsAnalyzer:
     def find_value_bets(self, predictions, odds_data):
         """
         Identify value bets by comparing predictions with bookmaker odds
-        
-        Args:
-            predictions: List of prediction dictionaries from MatchPredictor
-            odds_data: DataFrame or dict with bookmaker odds
-                      Format: {match_id: {"home": odds, "draw": odds, "away": odds}}
-        
-        Returns:
-            List of value bet opportunities
         """
         value_bets = []
-        
+       
         for pred in predictions:
             # Normalize team names for matching
             home_norm = normalize_team_name_for_odds(pred['home_team'])
             away_norm = normalize_team_name_for_odds(pred['away_team'])
-            
+           
             # Try multiple match key formats
             possible_keys = [
                 f"{pred['home_team']} vs {pred['away_team']}",
                 f"{home_norm} vs {away_norm}",
-                # Odds API format
                 f"{home_norm} vs {away_norm}".replace(" United", ""),
             ]
-            
+           
             # Find matching odds
             odds = None
             for key in possible_keys:
                 if key in odds_data:
                     odds = odds_data[key]
                     break
-            
-            # Also try fuzzy matching
+           
+            # Fuzzy matching
             if odds is None:
                 for odds_key in odds_data.keys():
                     if home_norm.lower() in odds_key.lower() and away_norm.lower() in odds_key.lower():
                         odds = odds_data[odds_key]
                         break
-            
+           
             if odds is None:
                 continue
-            
-            # Create match key for display
+           
             match_display = f"{pred['home_team']} vs {pred['away_team']}"
-            
-            # Analyze each outcome
+           
+            # === BEZPIECZNE POBIERANIE PRAWDOPODOBIEŃSTW ===
             outcomes = [
-                ("home_win", "home", pred["probabilities"]["home_win"]),
-                ("draw", "draw", pred["probabilities"]["draw"]),
-                ("away_win", "away", pred["probabilities"]["away_win"])
+                ("home_win", "home", 
+                 pred.get("home_win_prob") or pred.get("probabilities", {}).get("home_win", 0)),
+                ("draw", "draw", 
+                 pred.get("draw_prob") or pred.get("probabilities", {}).get("draw", 0)),
+                ("away_win", "away", 
+                 pred.get("away_win_prob") or pred.get("probabilities", {}).get("away_win", 0))
             ]
-            
+           
             for outcome_name, odds_key, model_prob in outcomes:
-                if odds_key not in odds:
+                if odds_key not in odds or model_prob < 0.01:
                     continue
-                
+               
                 bookmaker_odds = odds[odds_key]
                 bookmaker_prob = self.odds_to_probability(bookmaker_odds)
-                
-                # Calculate edge (model probability - bookmaker probability)
+               
                 edge = model_prob - bookmaker_prob
-                
-                # Calculate expected value
                 ev = self.calculate_expected_value(model_prob, bookmaker_odds)
+               
+                # === PRÓG VALUE BETÓW 3.5% ===
+                MIN_EDGE = 0.035
+                MIN_MODEL_PROB = 0.52
                 
-                # Check if it's a value bet
-                if edge >= self.value_threshold and ev > 0:
+                if (edge >= MIN_EDGE and ev > 0 and model_prob >= MIN_MODEL_PROB):
                     kelly_stake = self.calculate_kelly_stake(model_prob, bookmaker_odds)
-                    
+                   
                     value_bet = {
                         "match": match_display,
                         "home_team": pred["home_team"],
@@ -181,15 +174,13 @@ class OddsAnalyzer:
                         "bookmaker_probability": bookmaker_prob,
                         "edge": edge,
                         "expected_value": ev,
-                        "kelly_stake_pct": kelly_stake,  # Percentage of bankroll
-                        "confidence": pred["confidence"]
+                        "kelly_stake_pct": kelly_stake,
+                        "confidence": pred.get("confidence", model_prob)
                     }
-                    
+                   
                     value_bets.append(value_bet)
-        
-        # Sort by expected value (best opportunities first)
+       
         value_bets.sort(key=lambda x: x["expected_value"], reverse=True)
-        
         return value_bets
     
     def display_value_bets(self, value_bets, top_n=10):
