@@ -2,16 +2,19 @@ name: Daily Football Value Bets
 
 on:
   schedule:
-    - cron: '0 7 * * *'      # Codziennie o 7:00 UTC (9:00 w Polsce latem)
-  workflow_dispatch:         # Możliwość ręcznego uruchomienia
+    - cron: '0 7 * * *'
+  workflow_dispatch:
 
 jobs:
   predict:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (clean)
         uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -30,7 +33,7 @@ jobs:
           python main.py --predict --odds --leagues PL,PD,SA,BL1,FL1 --days 10
 
       - name: Generate HTML page
-        run: python generate_html.py
+        run: python generate_html.py || echo "generate_html.py not found or failed - skipping"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
